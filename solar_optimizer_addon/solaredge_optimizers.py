@@ -46,25 +46,44 @@ def login_and_get_token():
         "code_challenge": challenge,
     }
 
-    # 1) Login-Seite abrufen (wie ein Browser)
-    headers_get = {
+    # 1) Login-Seite abrufen
+    headers_browser = {
         "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
                       "AppleWebKit/537.36 (KHTML, like Gecko) "
                       "Chrome/124.0.0.0 Safari/537.36",
         "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
     }
 
-    r = SESSION.get(LOGIN_URL, params=params, headers=headers_get, timeout=20)
+    r = SESSION.get(LOGIN_URL, params=params, headers=headers_browser, timeout=20)
     r.raise_for_status()
 
-    # CSRF-Token extrahieren
+    # 2) JS-Datei extrahieren
     import re
-    csrf_match = re.search(r'name="_csrf" value="([^"]+)"', r.text)
-    if not csrf_match:
-        raise RuntimeError("Kein CSRF-Token gefunden")
-    csrf_token = csrf_match.group(1)
+    js_match = re.search(r'src="(/assets/login[^"]+\.js)"', r.text)
+    if not js_match:
+        raise RuntimeError("Login-JS nicht gefunden")
 
-    # 2) Login absenden (wie ein Browser)
+    js_url = "https://login.solaredge.com" + js_match.group(1)
+
+    r_js = SESSION.get(js_url, headers=headers_browser, timeout=20)
+    r_js.raise_for_status()
+
+    # 3) API-Endpoint extrahieren
+    api_match = re.search(r'"/api/[^"]+"', r_js.text)
+    if not api_match:
+        raise RuntimeError("Login-API nicht gefunden")
+
+    api_endpoint = "https://login.solaredge.com" + api_match.group(0).strip('"')
+
+    # 4) CSRF-Token aus API holen
+    r_api = SESSION.get(api_endpoint, headers=headers_browser, timeout=20)
+    r_api.raise_for_status()
+
+    csrf_token = r_api.json().get("csrf")
+    if not csrf_token:
+        raise RuntimeError("CSRF-Token nicht im API-JSON gefunden")
+
+    # 5) Login absenden
     data = {
         "username": USERNAME,
         "password": PASSWORD,
@@ -73,7 +92,7 @@ def login_and_get_token():
     }
 
     headers_post = {
-        "User-Agent": headers_get["User-Agent"],
+        "User-Agent": headers_browser["User-Agent"],
         "Content-Type": "application/x-www-form-urlencoded",
         "Referer": r.url,
     }
@@ -88,7 +107,7 @@ def login_and_get_token():
     )
     r2.raise_for_status()
 
-    # 3) Authorization Code extrahieren
+    # 6) Authorization Code extrahieren
     final_url = r2.url
     parsed = urllib.parse.urlparse(final_url)
     qs = urllib.parse.parse_qs(parsed.query)
@@ -98,7 +117,7 @@ def login_and_get_token():
 
     auth_code = qs["code"][0]
 
-    # 4) Access Token holen
+    # 7) Access Token holen
     data_token = {
         "grant_type": "authorization_code",
         "code": auth_code,
