@@ -1,4 +1,4 @@
-FROM ghcr.io/home-assistant/base:latest
+FROM python:3.11-slim
 WORKDIR /app
 
 COPY requirements.txt /app/
