@@ -10,6 +10,7 @@ COPY run.sh /app/
 RUN chmod +x /app/run.sh
 
 COPY solaredge_optimizers.py /app/
+COPY server.py /app/
 
 EXPOSE 8126
 
