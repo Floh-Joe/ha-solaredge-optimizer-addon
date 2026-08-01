@@ -1,5 +1,5 @@
 name: SolarEdge Optimizer Addon
-version: "1.0.2"
+version: "1.0.3"
 slug: solar_optimizer_addon
 description: Fetches SolarEdge optimizer data via OAuth and exposes it to Home Assistant.
 arch:
