@@ -33,9 +33,7 @@ def _pkce_pair():
     ).decode("utf-8").rstrip("=")
     return verifier, challenge
 
-
 def login_and_get_token():
-    """Führt den SolarEdge OAuth2 Login durch und liefert ein Access Token."""
     verifier, challenge = _pkce_pair()
 
     params = {
@@ -48,22 +46,49 @@ def login_and_get_token():
         "code_challenge": challenge,
     }
 
-    # 1) Login-Seite holen
-    r = SESSION.get(LOGIN_URL, params=params, timeout=20)
+    # 1) Login-Seite abrufen (wie ein Browser)
+    headers_get = {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+                      "AppleWebKit/537.36 (KHTML, like Gecko) "
+                      "Chrome/124.0.0.0 Safari/537.36",
+        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+    }
+
+    r = SESSION.get(LOGIN_URL, params=params, headers=headers_get, timeout=20)
     r.raise_for_status()
 
-    # 2) Login absenden
+    # CSRF-Token extrahieren
+    import re
+    csrf_match = re.search(r'name="_csrf" value="([^"]+)"', r.text)
+    if not csrf_match:
+        raise RuntimeError("Kein CSRF-Token gefunden")
+    csrf_token = csrf_match.group(1)
+
+    # 2) Login absenden (wie ein Browser)
     data = {
         "username": USERNAME,
         "password": PASSWORD,
+        "_csrf": csrf_token,
         "rememberMe": "true",
     }
+
+    headers_post = {
+        "User-Agent": headers_get["User-Agent"],
+        "Content-Type": "application/x-www-form-urlencoded",
+        "Referer": r.url,
+    }
+
     r2 = SESSION.post(
-        LOGIN_URL, params=params, data=data, allow_redirects=True, timeout=20
+        LOGIN_URL,
+        params=params,
+        data=data,
+        headers=headers_post,
+        allow_redirects=True,
+        timeout=20
     )
     r2.raise_for_status()
 
-    # 3) Authorization Code aus Redirect extrahieren
+    # 3) Authorization Code extrahieren
     final_url = r2.url
     parsed = urllib.parse.urlparse(final_url)
     qs = urllib.parse.parse_qs(parsed.query)
