@@ -1,0 +1,18 @@
+name: SolarEdge Optimizer Addon
+version: "1.0.0"
+slug: solar_optimizer_addon
+description: Fetches SolarEdge optimizer data via OAuth and exposes it to Home Assistant.
+arch:
+  - amd64
+  - aarch64
+startup: services
+boot: auto
+ports:
+  "8126/tcp": 8126
+options:
+  SE_USERNAME: ""
+  SE_PASSWORD: ""
+schema:
+  SE_USERNAME: str
+  SE_PASSWORD: str
+url: https://github.com/Floh-Joe/ha-solaredge-optimizer-addon.git
