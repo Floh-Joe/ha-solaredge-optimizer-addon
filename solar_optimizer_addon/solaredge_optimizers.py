@@ -46,7 +46,6 @@ def login_and_get_token():
         "code_challenge": challenge,
     }
 
-    # 1) Login-Seite abrufen
     headers_browser = {
         "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
                       "AppleWebKit/537.36 (KHTML, like Gecko) "
@@ -54,26 +53,33 @@ def login_and_get_token():
         "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
     }
 
+    # 1) Login-Seite abrufen
     r = SESSION.get(LOGIN_URL, params=params, headers=headers_browser, timeout=20)
     r.raise_for_status()
 
-    # 2) JS-Datei extrahieren
+    # 2) Alle JS-Dateien extrahieren
     import re
-    js_match = re.search(r'src="(/assets/login[^"]+\.js)"', r.text)
-    if not js_match:
-        raise RuntimeError("Login-JS nicht gefunden")
+    js_files = re.findall(r'src="(/assets/[^"]+\.js)"', r.text)
 
-    js_url = "https://login.solaredge.com" + js_match.group(1)
+    if not js_files:
+        raise RuntimeError("Keine JS-Dateien gefunden")
 
-    r_js = SESSION.get(js_url, headers=headers_browser, timeout=20)
-    r_js.raise_for_status()
+    api_endpoint = None
 
-    # 3) API-Endpoint extrahieren
-    api_match = re.search(r'"/api/[^"]+"', r_js.text)
-    if not api_match:
-        raise RuntimeError("Login-API nicht gefunden")
+    # 3) Jede JS-Datei durchsuchen
+    for js in js_files:
+        js_url = "https://login.solaredge.com" + js
+        r_js = SESSION.get(js_url, headers=headers_browser, timeout=20)
+        r_js.raise_for_status()
 
-    api_endpoint = "https://login.solaredge.com" + api_match.group(0).strip('"')
+        # Suche nach API-Endpoint
+        api_match = re.search(r'"/api/[^"]+"', r_js.text)
+        if api_match:
+            api_endpoint = "https://login.solaredge.com" + api_match.group(0).strip('"')
+            break
+
+    if not api_endpoint:
+        raise RuntimeError("Login-API nicht in JS-Dateien gefunden")
 
     # 4) CSRF-Token aus API holen
     r_api = SESSION.get(api_endpoint, headers=headers_browser, timeout=20)
@@ -134,6 +140,7 @@ def login_and_get_token():
         raise RuntimeError("Kein access_token im Token-Response")
 
     return token_data["access_token"]
+
 
 
 def fetch_optimizers(access_token):
