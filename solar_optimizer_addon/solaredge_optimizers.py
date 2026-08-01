@@ -9,20 +9,24 @@ import hashlib
 import os
 
 # --- Konfiguration ---
-USERNAME = os.getenv("SE_USERNAME", "wurstbrot30@hotmail.com")
-PASSWORD = os.getenv("SE_PASSWORD", "x14h&fBQrTn:")
+USERNAME = os.getenv("SE_USERNAME", "")
+PASSWORD = os.getenv("SE_PASSWORD", "")
 CLIENT_ID = "ugfnsujd3384sshcjehaphlh3"
 REDIRECT_URI = "https://monitoring.solaredge.com/mfe/auth/callback"
 SITE_ID = "3909779"
 
 LOGIN_URL = "https://login.solaredge.com/login"
 TOKEN_URL = "https://login.solaredge.com/oauth2/token"
-OPTIMIZERS_URL = f"https://monitoring.solaredge.com/services/cni/ui-api/optimizers?siteId={SITE_ID}&include-optimizers=true"
+OPTIMIZERS_URL = (
+    f"https://monitoring.solaredge.com/services/cni/ui-api/optimizers"
+    f"?siteId={SITE_ID}&include-optimizers=true"
+)
 
 SESSION = requests.Session()
 
 
 def _pkce_pair():
+    """Erzeugt Code-Verifier und Code-Challenge für OAuth2 PKCE."""
     verifier = base64.urlsafe_b64encode(os.urandom(40)).decode("utf-8").rstrip("=")
     challenge = base64.urlsafe_b64encode(
         hashlib.sha256(verifier.encode("utf-8")).digest()
@@ -31,6 +35,7 @@ def _pkce_pair():
 
 
 def login_and_get_token():
+    """Führt den SolarEdge OAuth2 Login durch und liefert ein Access Token."""
     verifier, challenge = _pkce_pair()
 
     params = {
@@ -43,30 +48,32 @@ def login_and_get_token():
         "code_challenge": challenge,
     }
 
-    # 1) Login‑Seite holen (Form + Cookies)
+    # 1) Login-Seite holen
     r = SESSION.get(LOGIN_URL, params=params, timeout=20)
     r.raise_for_status()
 
-    # 2) Login‑Formular absenden
+    # 2) Login absenden
     data = {
         "username": USERNAME,
         "password": PASSWORD,
         "rememberMe": "true",
     }
-    r2 = SESSION.post(LOGIN_URL, params=params, data=data, allow_redirects=True, timeout=20)
+    r2 = SESSION.post(
+        LOGIN_URL, params=params, data=data, allow_redirects=True, timeout=20
+    )
     r2.raise_for_status()
 
-    # 3) Redirect mit Authorization Code abfangen
-    #    Der Code steckt in der URL der letzten Weiterleitung
+    # 3) Authorization Code aus Redirect extrahieren
     final_url = r2.url
     parsed = urllib.parse.urlparse(final_url)
     qs = urllib.parse.parse_qs(parsed.query)
+
     if "code" not in qs:
-        raise RuntimeError("Kein Authorization Code in Redirect‑URL gefunden")
+        raise RuntimeError("Kein Authorization Code in Redirect-URL gefunden")
 
     auth_code = qs["code"][0]
 
-    # 4) Code gegen Access Token tauschen
+    # 4) Access Token holen
     data_token = {
         "grant_type": "authorization_code",
         "code": auth_code,
@@ -78,13 +85,15 @@ def login_and_get_token():
     t = SESSION.post(TOKEN_URL, data=data_token, timeout=20)
     t.raise_for_status()
     token_data = t.json()
+
     if "access_token" not in token_data:
-        raise RuntimeError("Kein access_token im Token‑Response")
+        raise RuntimeError("Kein access_token im Token-Response")
 
     return token_data["access_token"]
 
 
 def fetch_optimizers(access_token):
+    """Fragt die Optimizer-Daten ab."""
     headers = {
         "Authorization": f"Bearer {access_token}",
         "Accept": "application/json",
@@ -94,12 +103,15 @@ def fetch_optimizers(access_token):
     return r.json()
 
 
-def main():
+def get_optimizers_data():
+    """
+    Holt die Optimizer-Daten und gibt ein Python-Dict zurück.
+    Diese Funktion wird vom HTTP-Server verwendet.
+    """
     try:
         token = login_and_get_token()
         data = fetch_optimizers(token)
 
-        # Erwartete Struktur: Liste von Optimierern
         optimizers = []
         for opt in data.get("optimizers", []):
             optimizers.append({
@@ -113,18 +125,19 @@ def main():
                 "status": opt.get("status"),
             })
 
-        out = {
+        return {
             "timestamp": int(time.time()),
             "optimizers": optimizers,
         }
-        print(json.dumps(out))
 
     except Exception as e:
-        # Bei Fehlern ein leeres, aber gültiges JSON ausgeben,
-        # damit HA nicht komplett aussteigt
-        err = {"error": str(e), "optimizers": []}
-        print(json.dumps(err))
-        sys.exit(1)
+        return {"error": str(e), "optimizers": []}
+
+
+def main():
+    """CLI-Ausgabe für Debugging oder direkten Aufruf."""
+    data = get_optimizers_data()
+    print(json.dumps(data))
 
 
 if __name__ == "__main__":
